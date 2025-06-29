@@ -663,54 +663,57 @@ async function serveStaticFile(filePath: string): Promise<Response> {
 // Load embedded assets
 await loadAssets();
 
-// Start server
-const PORT: number = 8888;
+const args = Bun.argv.slice(2); // lấy tham số từ CLI
 
-const server = Bun.serve({
-  port: PORT,
-  hostname: "0.0.0.0",
-  async fetch(request: Request): Promise<Response> {
-    const url = new URL(request.url);
-    const { pathname, method } = {
-      pathname: url.pathname,
-      method: request.method,
-    };
+async function main() {
+  const command = args[0];
 
-    // Handle GET requests for static assets (embedded or file system)
-    if (method === "GET") {
-      // Try to serve embedded asset first
-      const embeddedAsset = serveEmbeddedAsset(pathname);
-      if (embeddedAsset) {
-        return embeddedAsset;
+  switch (command) {
+    case "generate": {
+      const result = await handleGenerateWallet();
+      console.log(await result.text());
+      break;
+    }
+
+    case "save": {
+      const data = args[1];
+      if (!data) {
+        console.error("⚠️ Missing data for save.");
+        process.exit(1);
       }
+      const request = new Request("http://localhost/save", {
+        method: "POST",
+        body: data,
+      });
+      const result = await handleSaveWallet(request);
+      console.log(await result.text());
+      break;
+    }
 
-      // Fallback to file system for development mode
-      if (pathname === "/" || pathname === "/index.html") {
-        return serveStaticFile(path.join(__dirname, "index.html"));
+    case "derive": {
+      const data = args[1];
+      if (!data) {
+        console.error("⚠️ Missing data for derive.");
+        process.exit(1);
       }
-
-      if (pathname.startsWith("/assets/")) {
-        const assetPath = path.join(__dirname, pathname);
-        return serveStaticFile(assetPath);
-      }
+      const request = new Request("http://localhost/derive", {
+        method: "POST",
+        body: data,
+      });
+      const result = await handleDeriveWallet(request);
+      console.log(await result.text());
+      break;
     }
 
-    // Handle API routes
-    if (method === "POST" && pathname === "/generate") {
-      return handleGenerateWallet();
+    default: {
+      console.log("📌 Usage:");
+      console.log("  bun wallet_generator.ts generate");
+      console.log("  bun wallet_generator.ts save '<json-data>'");
+      console.log("  bun wallet_generator.ts derive '<json-data>'");
+      break;
     }
+  }
+}
 
-    if (method === "POST" && pathname === "/save") {
-      return handleSaveWallet(request);
-    }
+main();
 
-    if (method === "POST" && pathname === "/derive") {
-      return handleDeriveWallet(request);
-    }
-
-    // 404 for all other routes
-    return new Response("Not Found", { status: 404 });
-  },
-});
-
-console.log("OCTRA Wallet Generator Web Server");
