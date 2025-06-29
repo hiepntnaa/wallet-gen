@@ -1,23 +1,5 @@
 #!/bin/bash
 
-# Octra Wallet Generator Setup Script
-# Automated setup: security warning, build from source, run, and open browser
-
-echo "=== Octra Wallet Generator Setup ==="
-echo ""
-
-# Show security warning first
-echo "=== ⚠️  SECURITY WARNING ⚠️  ==="
-echo ""
-echo "This tool generates real cryptographic keys. Always:"
-echo "  - Keep your private keys secure"
-echo "  - Never share your mnemonic phrase"
-echo "  - Don't store wallet files on cloud services"
-echo "  - Use on a secure, offline computer for production wallets"
-echo ""
-read -p "Press Enter to continue..."
-echo ""
-
 # Function to install Bun
 install_bun() {
     echo "Installing Bun..."
@@ -34,7 +16,6 @@ install_bun() {
 
 # Build from source
 echo "=== Building from Source ==="
-echo ""
 
 # Install Bun if not present
 install_bun
@@ -67,7 +48,7 @@ echo "Starting wallet generator server..."
 WALLET_PID=$!
 
 # Wait a moment for the server to start
-sleep 2
+sleep 5
 
 # Open browser
 
