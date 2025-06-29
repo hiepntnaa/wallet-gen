@@ -5,25 +5,44 @@ import { fileURLToPath } from "url";
 import nacl from "tweetnacl";
 import bip39 from "bip39";
 
-import indexHtml from "./index.html" with { type: "text" };
-import logoSvg from "./assets/logo.svg" with { type: "text" };
-import foundersGroteskFontPath from "./assets/founders-grotesk-bold.woff2" with { type: "file" };
-import nationalFontPath from "./assets/national-regular.woff2" with { type: "file" };
+// Remove problematic imports with unsupported syntax
+// import indexHtml from "./index.html" with { type: "text" };
+// import logoSvg from "./assets/logo.svg" with { type: "text" };
+// import foundersGroteskFontPath from "./assets/founders-grotesk-bold.woff2" with { type: "file" };
+// import nationalFontPath from "./assets/national-regular.woff2" with { type: "file" };
 
 // ESM equivalent of __dirname
 const __filename: string = fileURLToPath(import.meta.url);
 const __dirname: string = path.dirname(__filename);
 
+// Static asset paths
+const foundersGroteskFontPath = path.join(__dirname, "assets/founders-grotesk-bold.woff2");
+const nationalFontPath = path.join(__dirname, "assets/national-regular.woff2");
+const indexHtmlPath = path.join(__dirname, "index.html");
+const logoSvgPath = path.join(__dirname, "assets/logo.svg");
+
 // Embed static assets for executable builds
 let foundersGroteskFont: ArrayBuffer;
 let nationalFont: ArrayBuffer;
+let indexHtml: string;
+let logoSvg: string;
 
-// Load assets asynchronously
+// Load assets asynchronously with error handling
 async function loadAssets() {
   try {
-    foundersGroteskFont = await Bun.file(foundersGroteskFontPath).arrayBuffer();
-    nationalFont = await Bun.file(nationalFontPath).arrayBuffer();
-  } catch (error) {
+    if (await Bun.file(foundersGroteskFontPath).exists()) {
+      foundersGroteskFont = await Bun.file(foundersGroteskFontPath).arrayBuffer();
+    }
+    if (await Bun.file(nationalFontPath).exists()) {
+      nationalFont = await Bun.file(nationalFontPath).arrayBuffer();
+    }
+    if (await Bun.file(indexHtmlPath).exists()) {
+      indexHtml = await Bun.file(indexHtmlPath).text();
+    }
+    if (await Bun.file(logoSvgPath).exists()) {
+      logoSvg = await Bun.file(logoSvgPath).text();
+    }
+  } catch (error: any) {
     console.warn("Could not load embedded assets:", error.message);
     // Assets will be served from filesystem instead
   }
@@ -99,13 +118,17 @@ function base64Encode(buffer: Buffer | Uint8Array): string {
   return Buffer.from(buffer).toString("base64");
 }
 
-// Base58 encoding for Octra addresses
+// Improved Base58 encoding for Octra addresses
 function base58Encode(buffer: Buffer): string {
   if (buffer.length === 0) return "";
 
-  let num: bigint = BigInt("0x" + buffer.toString("hex"));
-  let encoded: string = "";
+  // Convert buffer to bigint more safely
+  let num: bigint = 0n;
+  for (let i = 0; i < buffer.length; i++) {
+    num = num * 256n + BigInt(buffer[i]);
+  }
 
+  let encoded: string = "";
   while (num > 0n) {
     const remainder: bigint = num % 58n;
     num = num / 58n;
@@ -532,7 +555,11 @@ Signature Algorithm: Ed25519
 Derivation: BIP39-compatible (PBKDF2-HMAC-SHA512, 2048 iterations)
 `;
 
-    fs.writeFileSync(filename, content);
+    try {
+      fs.writeFileSync(filename, content);
+    } catch (fsError: any) {
+      throw new Error(`Failed to write file: ${fsError.message}`);
+    }
 
     return Response.json({
       success: true,
@@ -557,6 +584,10 @@ async function handleDeriveWallet(request: Request): Promise<Response> {
       network_type = 0,
       index = 0,
     }: DeriveRequest = await request.json();
+
+    if (!seed_hex) {
+      throw new Error("seed_hex is required");
+    }
 
     const seed: Buffer = hexToBuffer(seed_hex);
     const derived: NetworkDerivation = deriveForNetwork(
@@ -663,57 +694,156 @@ async function serveStaticFile(filePath: string): Promise<Response> {
 // Load embedded assets
 await loadAssets();
 
-const args = Bun.argv.slice(2); // lấy tham số từ CLI
+const args = Bun.argv.slice(2); // Get CLI arguments
 
 async function main() {
-  const command = args[0];
+  try {
+    const command = args[0];
 
-  switch (command) {
-    case "generate": {
-      const result = await handleGenerateWallet();
-      console.log(await result.text());
-      break;
-    }
-
-    case "save": {
-      const data = args[1];
-      if (!data) {
-        console.error("⚠️ Missing data for save.");
-        process.exit(1);
-      }
-      const request = new Request("http://localhost/save", {
-        method: "POST",
-        body: data,
-      });
-      const result = await handleSaveWallet(request);
-      console.log(await result.text());
-      break;
-    }
-
-    case "derive": {
-      const data = args[1];
-      if (!data) {
-        console.error("⚠️ Missing data for derive.");
-        process.exit(1);
-      }
-      const request = new Request("http://localhost/derive", {
-        method: "POST",
-        body: data,
-      });
-      const result = await handleDeriveWallet(request);
-      console.log(await result.text());
-      break;
-    }
-
-    default: {
+    if (!command) {
       console.log("📌 Usage:");
       console.log("  bun wallet_generator.ts generate");
       console.log("  bun wallet_generator.ts save '<json-data>'");
       console.log("  bun wallet_generator.ts derive '<json-data>'");
-      break;
+      return;
     }
+
+    switch (command) {
+      case "generate": {
+        console.log("🔄 Generating wallet...");
+        const result = await handleGenerateWallet();
+        const reader = result.body?.getReader();
+        let walletData: WalletData | null = null;
+        
+        if (reader) {
+          while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            
+            const text = new TextDecoder().decode(value);
+            const lines = text.split('\n');
+            
+            for (const line of lines) {
+              if (line.startsWith('data: ')) {
+                try {
+                  const data = JSON.parse(line.slice(6));
+                  if (data.wallet) {
+                    walletData = data.wallet;
+                  }
+                } catch (e) {
+                  // Ignore parsing errors
+                }
+              }
+            }
+          }
+        }
+        
+        if (walletData) {
+          const timestamp = Math.floor(Date.now() / 1000);
+          const filename = `octra_wallet_${walletData.address.slice(-8)}_${timestamp}.txt`;
+          
+          const content = `OCTRA WALLET
+${"=".repeat(50)}
+
+SECURITY WARNING: KEEP THIS FILE SECURE AND NEVER SHARE YOUR PRIVATE KEY
+
+Generated: ${new Date().toISOString().replace("T", " ").slice(0, 19)}
+Address Format: oct + Base58(SHA256(pubkey))
+
+Mnemonic: ${walletData.mnemonic.join(" ")}
+Private Key (B64): ${walletData.private_key_b64}
+Public Key (B64): ${walletData.public_key_b64}
+Address: ${walletData.address}
+
+Technical Details:
+Entropy: ${walletData.entropy_hex}
+Signature Algorithm: Ed25519
+Derivation: BIP39-compatible (PBKDF2-HMAC-SHA512, 2048 iterations)
+`;
+          
+          try {
+            fs.writeFileSync(filename, content);
+            console.log(`\n✅ Wallet generated successfully!`);
+            console.log(`📁 Saved to: ${filename}\n`);
+            console.log(content);
+          } catch (error: any) {
+            console.error(`❌ Failed to save wallet: ${error.message}`);
+            console.log("\n📋 Wallet data:");
+            console.log(content);
+          }
+        } else {
+          console.error("❌ Failed to generate wallet data");
+        }
+        break;
+      }
+
+      case "save": {
+        const data = args[1];
+        if (!data) {
+          console.error("⚠️ Missing data for save command.");
+          console.log("Usage: bun wallet_generator.ts save '<json-data>'");
+          process.exit(1);
+        }
+        
+        try {
+          JSON.parse(data); // Validate JSON
+        } catch {
+          console.error("⚠️ Invalid JSON data provided.");
+          process.exit(1);
+        }
+
+        const request = new Request("http://localhost/save", {
+          method: "POST",
+          body: data,
+          headers: { "Content-Type": "application/json" }
+        });
+        const result = await handleSaveWallet(request);
+        console.log(await result.text());
+        break;
+      }
+
+      case "derive": {
+        const data = args[1];
+        if (!data) {
+          console.error("⚠️ Missing data for derive command.");
+          console.log("Usage: bun wallet_generator.ts derive '<json-data>'");
+          process.exit(1);
+        }
+
+        try {
+          JSON.parse(data); // Validate JSON
+        } catch {
+          console.error("⚠️ Invalid JSON data provided.");
+          process.exit(1);
+        }
+
+        const request = new Request("http://localhost/derive", {
+          method: "POST",
+          body: data,
+          headers: { "Content-Type": "application/json" }
+        });
+        const result = await handleDeriveWallet(request);
+        console.log(await result.text());
+        break;
+      }
+
+      default: {
+        console.error(`⚠️ Unknown command: ${command}`);
+        console.log("📌 Available commands:");
+        console.log("  generate - Generate a new wallet");
+        console.log("  save - Save wallet data to file");
+        console.log("  derive - Derive wallet from seed");
+        process.exit(1);
+      }
+    }
+  } catch (error: any) {
+    console.error("❌ Error:", error.message);
+    process.exit(1);
   }
 }
 
-main();
-
+// Run main with proper error handling
+main().catch((error) => {
+  console.error("❌ Fatal error:", error.message);
+  process.exit(1);
+});
