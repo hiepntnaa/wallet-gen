@@ -70,22 +70,50 @@ WALLET_PID=$!
 sleep 2
 
 # Open browser
-echo "Opening browser at http://localhost:8888"
+echo "Khởi động ngrok để trỏ tới http://localhost:8888"
 
-BROWSER_CMD=""
-if command -v open &> /dev/null; then
-    # macOS
-    BROWSER_CMD="open"
-elif command -v xdg-open &> /dev/null; then
-    # Linux
-    BROWSER_CMD="xdg-open"
+# Đường dẫn file cấu hình ngrok
+NGROK_CONFIG_FILE="$HOME/.config/ngrok/ngrok.yml"
+
+# Kiểm tra xem đã có authtoken chưa
+if [ ! -f "$NGROK_CONFIG_FILE" ]; then
+    echo "Ngrok chưa được cấu hình. Vui lòng chạy lệnh sau để thêm authtoken:"
+    echo "ngrok config add-authtoken <YOUR_AUTHTOKEN>"
+    exit 1
 fi
 
-if [ -n "$BROWSER_CMD" ]; then
-    $BROWSER_CMD http://localhost:8888 2>/dev/null || echo "Could not automatically open browser. Please manually open http://localhost:8888"
+# Kiểm tra ngrok đã cài chưa
+if ! command -v ngrok &> /dev/null; then
+    echo "Ngrok chưa được cài đặt. Vui lòng cài ngrok trước khi tiếp tục."
+    exit 1
+fi
+
+# Kiểm tra xem ngrok đã có tunnel đang chạy chưa
+if curl -s http://127.0.0.1:4040/api/tunnels &> /dev/null; then
+    echo "Đã có ngrok tunnel đang chạy. Lấy URL..."
 else
-    echo "Please manually open http://localhost:8888 in your browser"
+    echo "Đang khởi động ngrok tunnel..."
+    nohup ngrok http 8888 > /dev/null 2>&1 &
+    sleep 3
 fi
+
+# Lấy URL từ ngrok
+NGROK_URL=$(curl -s http://127.0.0.1:4040/api/tunnels | grep -o 'https://[0-9a-z]*\.ngrok.io' | head -n 1)
+
+if [ -n "$NGROK_URL" ]; then
+    echo "Ngrok đang chạy tại: $NGROK_URL"
+    # Mở trình duyệt nếu có lệnh phù hợp
+    if command -v open &> /dev/null; then
+        open "$NGROK_URL"
+    elif command -v xdg-open &> /dev/null; then
+        xdg-open "$NGROK_URL"
+    else
+        echo "Vui lòng mở đường dẫn sau trong trình duyệt: $NGROK_URL"
+    fi
+else
+    echo "Không thể lấy URL từ ngrok. Kiểm tra lại kết nối hoặc cấu hình."
+fi
+
 
 # Wait for the background process
 wait $WALLET_PID 
