@@ -70,49 +70,65 @@ WALLET_PID=$!
 sleep 2
 
 # Open browser
+#!/bin/bash
+
+echo "=== OCTRA Wallet Generator ==="
+echo ""
 echo "Khởi động ngrok để trỏ tới http://localhost:8888"
+echo ""
 
 # Đường dẫn file cấu hình ngrok
 NGROK_CONFIG_FILE="$HOME/.config/ngrok/ngrok.yml"
 
-# Kiểm tra xem đã có authtoken chưa
+# Kiểm tra ngrok config
 if [ ! -f "$NGROK_CONFIG_FILE" ]; then
-    echo "Ngrok chưa được cấu hình. Vui lòng chạy lệnh sau để thêm authtoken:"
-    echo "ngrok config add-authtoken <YOUR_AUTHTOKEN>"
+    echo "⚠️  Ngrok chưa được cấu hình. Vui lòng chạy:"
+    echo "    ngrok config add-authtoken <YOUR_AUTHTOKEN>"
     exit 1
 fi
 
 # Kiểm tra ngrok đã cài chưa
 if ! command -v ngrok &> /dev/null; then
-    echo "Ngrok chưa được cài đặt. Vui lòng cài ngrok trước khi tiếp tục."
+    echo "⚠️  Ngrok chưa được cài đặt. Vui lòng cài ngrok trước:"
+    echo "    https://ngrok.com/download"
     exit 1
 fi
 
-# Kiểm tra xem ngrok đã có tunnel đang chạy chưa
-if curl -s http://127.0.0.1:4040/api/tunnels &> /dev/null; then
-    echo "Đã có ngrok tunnel đang chạy. Lấy URL..."
-else
+# Kiểm tra jq đã cài chưa
+if ! command -v jq &> /dev/null; then
+    echo "⚠️  Thiếu jq (dùng để xử lý JSON). Đang cài đặt..."
+    apt update && apt install -y jq || {
+        echo "❌ Không thể cài đặt jq. Thoát.";
+        exit 1;
+    }
+fi
+
+# Kiểm tra nếu ngrok chưa chạy
+if ! curl -s http://127.0.0.1:4040/api/tunnels &> /dev/null; then
     echo "Đang khởi động ngrok tunnel..."
     nohup ngrok http 8888 > /dev/null 2>&1 &
-    sleep 3
+    sleep 5
+else
+    echo "Phát hiện ngrok tunnel đang chạy, lấy URL hiện tại..."
 fi
 
 # Lấy URL từ ngrok
-NGROK_URL=$(curl -s http://127.0.0.1:4040/api/tunnels | grep -o 'https://[0-9a-z]*\.ngrok.io' | head -n 1)
+NGROK_URL=$(curl -s http://127.0.0.1:4040/api/tunnels | jq -r '.tunnels[0].public_url')
 
-if [ -n "$NGROK_URL" ]; then
-    echo "Ngrok đang chạy tại: $NGROK_URL"
-    # Mở trình duyệt nếu có lệnh phù hợp
+if [[ -n "$NGROK_URL" && "$NGROK_URL" == https://* ]]; then
+    echo "✅ Ngrok đang chạy tại: $NGROK_URL"
+    # Mở trình duyệt nếu có
     if command -v open &> /dev/null; then
         open "$NGROK_URL"
     elif command -v xdg-open &> /dev/null; then
         xdg-open "$NGROK_URL"
     else
-        echo "Vui lòng mở đường dẫn sau trong trình duyệt: $NGROK_URL"
+        echo "💡 Vui lòng mở liên kết trong trình duyệt của bạn: $NGROK_URL"
     fi
 else
-    echo "Không thể lấy URL từ ngrok. Kiểm tra lại kết nối hoặc cấu hình."
+    echo "❌ Không thể lấy URL từ ngrok. Kiểm tra lại cấu hình hoặc port 8888."
 fi
+
 
 
 # Wait for the background process
